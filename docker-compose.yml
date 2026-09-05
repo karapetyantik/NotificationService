@@ -1,0 +1,25 @@
+name: chat-alpha-notification
+
+services:
+  postgres-notification:
+    image: postgres:16
+    container_name: chat-alpha-notification-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: chat_alpha_notifications
+    ports:
+      - "5435:5432"
+    volumes:
+      - notification_pgdata:/var/lib/postgresql/data
+    networks:
+      - chat-alpha-network
+
+volumes:
+  notification_pgdata:
+    name: chat-alpha-notification_pgdata
+
+networks:
+  chat-alpha-network:
+    external: true
