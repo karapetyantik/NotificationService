@@ -1,7 +1,9 @@
 import { Controller, Post, Body, Req, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from 'src/common/auth/jwt-auth.guard';
+import { JwtAuthGuard } from '@common/auth/jwt-auth.guard';
+import type { AuthenticatedRequest } from '@common/auth/authenticated-request.interface';
 import { DevicesService } from './devices.service';
 import { RegisterDeviceDto } from './dto/register-device.dto';
+import { UnregisterDeviceDto } from './dto/unregister-device.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('notifications')
@@ -9,12 +11,18 @@ export class DevicesController {
   constructor(private readonly devicesService: DevicesService) {}
 
   @Post('register-device')
-  registerDevice(@Req() req: any, @Body() dto: RegisterDeviceDto) {
+  registerDevice(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: RegisterDeviceDto,
+  ) {
     return this.devicesService.registerDevice(req.user.userId, dto);
   }
 
   @Post('unregister-device')
-  unregisterDevice(@Body('token') token: string) {
-    return this.devicesService.unregisterDevice(token);
+  unregisterDevice(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: UnregisterDeviceDto,
+  ) {
+    return this.devicesService.unregisterDevice(req.user.userId, dto.token);
   }
 }

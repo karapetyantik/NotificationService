@@ -1,42 +1,66 @@
-import { Controller, Inject } from '@nestjs/common';
+import {
+  Controller,
+  Inject,
+  Logger,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { DevicesService } from '../devices/devices.service';
-import { RedisService } from 'src/common/redis/redis.service';
+import { RedisService } from '@common/redis/redis.service';
 import type { PushProvider } from '../push/push-provider.interface';
-
-interface MessageSentEvent {
-  chatId: string;
-  senderId: string;
-  content?: string;
-  recipientIds: string[];
-}
+import { MessageSentEventDto } from './dto/message-sent-event.dto';
 
 @Controller()
 export class NotificationsController {
+  private readonly logger = new Logger(NotificationsController.name);
+
   constructor(
     private readonly devicesService: DevicesService,
     private readonly redisService: RedisService,
     @Inject('PUSH_PROVIDER') private readonly pushProvider: PushProvider,
   ) {}
 
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   @EventPattern('message.sent')
-  async handleMessageSent(@Payload() event: MessageSentEvent) {
-    for (const userId of event.recipientIds) {
-      if (userId === event.senderId) continue;
+  async handleMessageSent(@Payload() event: MessageSentEventDto) {
+    const candidates = event.recipientIds.filter(
+      (userId) => userId !== event.senderId,
+    );
+    if (candidates.length === 0) return;
 
-      const activeSockets = await this.redisService.client.smembers(
-        `user_sockets:${userId}`,
-      );
-      if (activeSockets.length > 0) continue;
+    const onlineFlags = await this.areOnline(candidates);
 
-      const tokens = await this.devicesService.getUserTokens(userId);
-      for (const token of tokens) {
-        await this.pushProvider.send(
-          token,
-          'Новое сообщение',
-          event.content ?? 'Вложение',
+    for (const [index, userId] of candidates.entries()) {
+      if (onlineFlags[index]) continue;
+
+      try {
+        await this.notifyOfflineUser(userId, event.content);
+      } catch (error) {
+        this.logger.error(
+          `Не удалось отправить push userId=${userId}: ${error instanceof Error ? error.message : error}`,
         );
       }
     }
+  }
+
+  private async notifyOfflineUser(userId: string, content?: string) {
+    const tokens = await this.devicesService.getUserTokens(userId);
+    for (const token of tokens) {
+      await this.pushProvider.send(
+        token,
+        'Новое сообщение',
+        content ?? 'Вложение',
+      );
+    }
+  }
+
+  private async areOnline(userIds: string[]): Promise<boolean[]> {
+    const pipeline = this.redisService.client.pipeline();
+    for (const userId of userIds) {
+      pipeline.scard(`user_sockets:${userId}`);
+    }
+    const results = await pipeline.exec();
+    return (results ?? []).map(([, count]) => Number(count) > 0);
   }
 }

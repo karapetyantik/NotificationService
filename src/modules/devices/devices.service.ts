@@ -1,5 +1,9 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from 'src/common/prisma/prisma.service';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '@common/prisma/prisma.service';
 import { RegisterDeviceDto } from './dto/register-device.dto';
 
 @Injectable()
@@ -14,8 +18,19 @@ export class DevicesService {
     });
   }
 
-  async unregisterDevice(token: string) {
-    await this.prismaService.deviceToken.deleteMany({ where: { token } });
+  async unregisterDevice(userId: string, token: string) {
+    const device = await this.prismaService.deviceToken.findUnique({
+      where: { token },
+    });
+
+    if (!device) {
+      throw new NotFoundException('Устройство не найдено');
+    }
+    if (device.userId !== userId) {
+      throw new ForbiddenException('Это не ваше устройство');
+    }
+
+    await this.prismaService.deviceToken.delete({ where: { token } });
     return { success: true };
   }
 

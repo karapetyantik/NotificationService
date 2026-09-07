@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { NotificationsController } from './notifications.controller';
 import { DevicesModule } from '../devices/devices.module';
-import { RedisModule } from 'src/common/redis/redis.module';
+import { RedisModule } from '@common/redis/redis.module';
 import { ConsolePushProvider } from '../push/console-push.provider';
 
 @Module({
