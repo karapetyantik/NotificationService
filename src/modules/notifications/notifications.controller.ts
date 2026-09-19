@@ -7,9 +7,10 @@ import {
 } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { DevicesService } from '../devices/devices.service';
-import { RedisService } from '@common/redis/redis.service';
 import type { PushProvider } from '../push/push-provider.interface';
 import { MessageSentEventDto } from './dto/message-sent-event.dto';
+import { UrgentNotifyEventDto } from './dto/urgent-notify-event.dto';
+import { RedisService } from '@common/redis/redis.service';
 
 @Controller()
 export class NotificationsController {
@@ -44,14 +45,45 @@ export class NotificationsController {
     }
   }
 
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  @EventPattern('urgent.notify')
+  async handleUrgentNotify(@Payload() event: UrgentNotifyEventDto) {
+    const tokens = await this.devicesService.getUserTokens(event.userId);
+    const body = event.reason ?? 'Собеседник настаивает на срочном ответе';
+    await this.sendToAllTokens(
+      event.userId,
+      tokens,
+      '🔴 СРОЧНОЕ сообщение',
+      body,
+    );
+  }
+
   private async notifyOfflineUser(userId: string, content?: string) {
     const tokens = await this.devicesService.getUserTokens(userId);
+    await this.sendToAllTokens(
+      userId,
+      tokens,
+      'Новое сообщение',
+      content ?? 'Вложение',
+    );
+  }
+
+  private async sendToAllTokens(
+    userId: string,
+    tokens: string[],
+    title: string,
+    body: string,
+  ) {
     for (const token of tokens) {
-      await this.pushProvider.send(
-        token,
-        'Новое сообщение',
-        content ?? 'Вложение',
-      );
+      try {
+        await this.pushProvider.send(token, title, body);
+      } catch (error) {
+        this.logger.error(
+          `Не удалось отправить push userId=${userId} token=${token.slice(0, 10)}...: ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
+      }
     }
   }
 

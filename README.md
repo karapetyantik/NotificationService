@@ -27,7 +27,8 @@ ChatService ──message.sent (RMQ)──▶ NotificationService
 
 - Регистрация/отвязка push-токена устройства (`ios`/`android`/`web`) с проверкой владения — один пользователь не может отписать чужое устройство.
 - При каждом `message.sent` — для всех получателей, кроме отправителя, пакетно (Redis pipeline, не по одному запросу) проверяется, есть ли активный WebSocket-сокет; push шлётся только тем, у кого его нет.
-- Ошибка отправки push одному получателю не блокирует рассылку остальным (изолированный try/catch на каждого получателя).
+- Ошибка отправки push одному получателю не блокирует рассылку остальным — изоляция на уровне каждого получателя И каждого его устройства отдельно (протухший токен на одном телефоне не глушит пуш на остальные устройства того же пользователя).
+- Срочные уведомления (`urgent.notify`, от AIAssistantService — автоответчик решил, что дело серьёзное) доставляются на все устройства пользователя независимо от online/offline статуса.
 
 ## API (`/notifications`)
 
@@ -38,9 +39,14 @@ ChatService ──message.sent (RMQ)──▶ NotificationService
 | `POST` | `/notifications/register-device` | Зарегистрировать/обновить push-токен (`{ token, platform }`) |
 | `POST` | `/notifications/unregister-device` | Отвязать своё устройство (`{ token }`) |
 
-## Потребляемое событие: `message.sent`
+## Потребляемые события
 
-Очередь `notification_events`, публикует ChatService. Валидируется через DTO (`chatId`, `senderId`, `content?`, `recipientIds[]`).
+Очередь `notification_events`.
+
+| Событие | Публикует | Payload | Поведение |
+|---|---|---|---|
+| `message.sent` | ChatService | `{ chatId, senderId, content?, recipientIds[] }` | Push только офлайн-получателям |
+| `urgent.notify` | AIAssistantService | `{ userId, chatId, reason?, messagePreview? }` | Push на все устройства `userId`, без проверки online-статуса |
 
 ## Переменные окружения
 
@@ -63,7 +69,7 @@ src/
 │   └── redis/      # RedisService
 └── modules/
     ├── devices/     # регистрация/отвязка устройств
-    ├── notifications/ # message.sent consumer, dto/message-sent-event
+    ├── notifications/ # message.sent + urgent.notify consumers, dto/
     └── push/          # PushProvider интерфейс + ConsolePushProvider (заглушка)
 ```
 
